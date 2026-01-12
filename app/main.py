@@ -117,13 +117,13 @@ else:
     if st.session_state.get("show_report", False):
         st.title("📑 面试评估报告")
         db = get_db()
-        sess = db.query(InterviewSession).get(st.session_state.interview_session_id)
+        sess = db.get(InterviewSession, st.session_state.interview_session_id)
         
         if not sess.feedback and interviewer:
             with st.spinner("🧠 面试官正在深度复盘整场面试..."):
                 rep = interviewer.generate_final_report(sess.messages)
                 crud.update_session_feedback(db, sess.id, rep.get("total_score", 0), json.dumps(rep))
-                sess = db.query(InterviewSession).get(sess.id)
+                sess = db.get(InterviewSession, sess.id)
         
         if sess.feedback:
             try:
@@ -162,7 +162,7 @@ else:
         st.subheader("正在面试中...")
         
         db = get_db()
-        sess = db.query(InterviewSession).get(st.session_state.interview_session_id)
+        sess = db.get(InterviewSession, st.session_state.interview_session_id)
         msgs = sess.messages if sess.messages else []
         
         # Chat Container
@@ -191,7 +191,7 @@ else:
                          st.write(response)
                          
                          # Save to DB
-                         crud.add_message(db, sess.id, "ai", response)
+                         crud.add_message_to_session(db, sess.id, "ai", response)
                          # Rerun to update state
                          st.rerun()
 
@@ -199,7 +199,7 @@ else:
         if prompt := st.chat_input("请输入你的回答..."):
             with st.chat_message("user", avatar="🧑‍💻"):
                 st.write(prompt)
-            crud.add_message(db, sess.id, "human", prompt)
+            crud.add_message_to_session(db, sess.id, "human", prompt)
             st.rerun()
             
         db.close()

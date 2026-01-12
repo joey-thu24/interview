@@ -3,9 +3,35 @@ import streamlit as st
 def load_custom_css():
     st.markdown("""
         <style>
-        /* 全局字体优化 */
+        /* 全局字体与排版优化 */
         .stApp {
-            font-family: 'Inter', 'Helvetica Neue', sans-serif;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+        
+        /* 移动端适配优化 (Mobile Friendly) */
+        @media (max-width: 640px) {
+            .block-container {
+                padding-top: 2rem !important;
+                padding-left: 1rem !important;
+                padding-right: 1rem !important;
+            }
+            h1 {
+                font-size: 1.6rem !important;
+            }
+            h2 {
+                font-size: 1.4rem !important;
+            }
+            h3 {
+                font-size: 1.2rem !important;
+            }
+            .stButton button {
+                width: 100%; /* 移动端按钮全宽 */
+                margin-top: 0.5rem;
+            }
+            /* 隐藏不必要的留白 */
+            .stVerticalBlock {
+                gap: 0.5rem !important;
+            }
         }
         
         /* 侧边栏美化 */
@@ -20,46 +46,24 @@ def load_custom_css():
             border-bottom: 1px solid #f0f2f6;
             padding: 1rem 0;
         }
-        .stChatMessage[data-testid="stChatMessage"]:nth-child(odd) {
-             /* User message styling can go here if needed */
-        }
         
-        /* 按钮美化 */
+        /* 按钮统一风格 */
         .stButton button {
             border-radius: 8px;
             font-weight: 600;
+            transition: all 0.2s;
+        }
+        .stButton button:hover {
+            transform: translateY(-1px);
         }
         
-        /* Tabs 优化 */
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 24px;
-        }
-        .stTabs [data-baseweb="tab"] {
-            height: 50px;
-            white-space: pre-wrap;
-            background-color: transparent;
-            border-radius: 4px;
-            color: #495057;
-            font-size: 16px;
-        }
-        .stTabs [aria-selected="true"] {
-            background-color: #e7f5ff;
-            color: #1971c2;
-            font-weight: bold;
+        /* 卡片式设计 */
+        div.css-1r6slb0 {
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
         }
         
-        /* Metric 卡片美化 */
-        [data-testid="stMetricValue"] {
-            font-size: 24px;
-            color: #228be6;
-        }
         </style>
-    """, unsafe_allow_html=True)
-
-def render_header():
-    st.markdown("""
-    <div style="text-align: center; margin-bottom: 2rem;">
-        <h1 style="color: #1a1a1a;">🎓 AI Interview Pro</h1>
-        <p style="color: #666; font-size: 1.1rem;">DeepSeek 驱动的沉浸式面试模拟系统</p>
-    </div>
     """, unsafe_allow_html=True)

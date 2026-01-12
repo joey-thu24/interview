@@ -2,152 +2,133 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 import json
 import re
-
-from core.data.real_questions import get_real_questions
 import random
+from core.data.real_questions import get_real_questions
 
 class InterviewerAgent:
     def __init__(self, llm):
         self.llm = llm
 
-    def generate_question(self, topic, difficulty="中等", history=[], jd_text=None):
+    def conduct_interview(self, history, context):
         """
-        生成面试题目
-        :param jd_text: 可选，JD 内容。如果存在，则基于 JD 出题。
+        主面试逻辑控制器 (CoT Deep Thinking)
+        :param history: 聊天记录 list
+        :param context: dict, 包含 mode, topic, jd
         """
-        
-        # 1. JD 模式 (优先)
-        if jd_text:
-            return self._generate_from_jd(jd_text, difficulty, history)
-            
-        # 2. 真题库模式 (概率触发，例如 70% 概率抽真题，增加惊喜感)
-        # 检查历史是否已经问过，避免重复
-        asked_questions = [h['content'] for h in history if h['role']=='assistant']
-        real_candidates = get_real_questions(topic)
-        # 过滤掉已经问过的（简单的字符串包含匹配）
-        available_real = [q for q in real_candidates if q['question'] not in str(asked_questions)]
-        
-        if available_real and random.random() < 0.7:
-            # 抽选真题
-            selected = random.choice(available_real)
-            prefix = f"【🚀 {selected['company']} {selected['year']} 真题】"
-            return f"{prefix} {selected['question']}"
-            
-        # 3. LLM 生成模式 (兜底)
-        system_prompt = """你是一位资深的{topic}技术面试官。
-请根据候选人的面试历史，提出一个新的、有挑战性的面试题。
-难度等级：{difficulty}。
+        # 1. 如果是第一次交互 (History 为空或仅有System)，则进行开场
+        if not history or len(history) == 0:
+            return self._generate_opening(context)
 
-请只输出问题本身，不要包含任何寒暄。
-如果历史记录中已经有了类似问题，请换一个角度或换一个知识点。
+        # 2. 如果最后一条是用户回答，则进行 "评估 + 追问/新题"
+        last_msg = history[-1]
+        if last_msg.get("role") == "human":
+            # 获取用户最后一句回答
+            user_answer = last_msg.get("content", "")
+            
+            # 使用 CoT 深度思考用户的回答
+            evaluation = self._evaluate_and_plan(history, context)
+            
+            return evaluation
+        
+        return "请继续回答。"
+
+    def _generate_opening(self, context):
+        topic = context.get("topic", "通用技术")
+        return f"您好，我是您的 AI 面试官。今天我们将进行 {topic} 方向的模拟面试。请准备好后，简单通过打字做一个自我介绍。"
+
+    def _evaluate_and_plan(self, history, context):
+        """
+        深度评估用户回答，并决定下一步动作
+        """
+        system_prompt = """你是一位资深、严厉但公正的技术面试官 (Google L5/L6 级别)。
+你正在进行一场全中文的模拟面试。
+
+当前上下文:
+模式: {mode}
+主题: {topic}
+岗位描述: {jd}
+
+用户的最后一句回答是针对上一轮问题的。
+请按以下步骤进行 **深度思考 (Chain of Thought)**：
+
+1. **深度解析**: 用户的回答是否触及了问题的底层原理？是否有逻辑漏洞？是否只是背诵八股文而没有理解？
+2. **评分判定**: 给出一个 0-100 的分数。
+3. **决策下一步**: 
+    - 如果回答得很浅 -> 追问底层原理 (Follow-up)。
+    - 如果回答错误 -> 指出错误并纠正，然后出新题 (New Question)。
+    - 如果回答完美 -> 给予肯定，然后出更难的新题 (New Question)。
+    - 如果是自我介绍 -> 针对介绍中的亮点进行提问。
+
+**输出要求**:
+不要输出思考过程的 JSON，直接以面试官的身份输出 **回复内容**。
+回复格式：
+[反馈与点评] (请一针见血，不要客套)
+[分割线或换行]
+[下一个问题] (必须具体、有挑战性)
+
+请保持全中文回复，专业术语可以用英文。
 """
-        # 将历史对话整理为 context string
-        # history items are dicts with 'role' and 'content'
-        history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history[-6:]]) if history else "无"
-
+        # 构建 Prompt
+        # 截取最近 4 轮对话作为 Context
+        history_text = "\n".join([f"{msg.get('role')}: {msg.get('content')}" for msg in history[-8:]])
+        
         prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
-            ("user", f"历史对话：\n{history_text}\n\n请出题：")
+            ("user", f"历史对话:\n{history_text}\n\n[面试官请回复]:")
         ])
         
         chain = prompt | self.llm | StrOutputParser()
-        return chain.invoke({"topic": topic, "difficulty": difficulty})
-
-    def _generate_from_jd(self, jd_text, difficulty, history):
-        """
-        基于 JD 生成定制问题
-        """
-        system_prompt = """你是一位严厉的面试官。你手里有一份该职位的 JD（职位描述）。
-请根据 JD 中的核心要求（关键技术栈、业务场景、加分项），向候选人提出面试问题。
-
-JD 内容：
-{jd_text}
-
-难度等级：{difficulty}。
-要求：只输出问题本身。问题必须与 JD 紧密相关，考察候选人是否真的匹配该岗位。
-"""
-        history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history[-6:]]) if history else "无"
-        
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            ("user", f"历史对话：\n{history_text}\n\n请基于 JD 出题：")
-        ])
-        
-        chain = prompt | self.llm | StrOutputParser()
-        return chain.invoke({"jd_text": jd_text, "difficulty": difficulty})
-
+        try:
+            response = chain.invoke({
+                "mode": context.get("mode", "专项练习"),
+                "topic": context.get("topic", "未知"),
+                "jd": context.get("jd", "无")
+            })
+            return response
+        except Exception as e:
+            return f"（系统错误：{str(e)}）请继续回答..."
 
     def generate_final_report(self, history):
         """
-        面试结束后生成综合报告
+        生成最终深度总结报告
         """
-        system_prompt = """你是一位面试官。面试已结束，请根据以下对话历史，给出一份面试总结报告。
-        
-请输出 JSON 格式：
-- "total_score": 0-100 总分
-- "summary": 总体表现评价
-- "strengths": [亮点1, 亮点2]
-- "weaknesses": [不足1, 不足2]
-- "suggestions": [改进建议1, 建议2]
+        system_prompt = """你是一位资深技术专家。面试已结束，请对候选人进行全方位的深度画像。
+
+请进行 **Step-by-Step 思考**：
+1. 回顾整个面试过程，候选人在哪些领域（OS/网络/数据库/算法）表现出色？
+2. 哪些回答暴露了原理性认知缺失？
+3. 沟通是否清晰？逻辑是否严密？
+
+请输出严格的 JSON 格式：
+{
+    "total_score": 0-100,
+    "summary": "深度的综合评价，不少于 100 字，言辞恳切。",
+    "strengths": ["亮点1", "亮点2", "亮点3"],
+    "weaknesses": ["致命弱点1", "弱点2", "弱点3"],
+    "suggestions": ["具体的学习建议1 (例如推荐读什么书)", "建议2", "建议3"]
+}
+
+注意：JSON 必须合法，Key 必须用双引号。
 """
-        # 转换历史记录为文本
-        history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
+        history_text = "\n".join([f"{msg.get('role')}: {msg.get('content')}" for msg in history])
         
         prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
-            ("user", f"面试记录：\n{history_text}\n\n请生成报告。")
+            ("user", f"面试记录:\n{history_text}\n\n请生成深度报告 (JSON):")
         ])
         
         chain = prompt | self.llm | StrOutputParser()
         result = chain.invoke({})
         
-        import json
-        import re
         try:
             match = re.search(r"\{[\s\S]*\}", result.strip())
             clean = match.group(0) if match else result
             return json.loads(clean)
-        except:
-            return {"summary": "报告生成失败", "error": result}
-
-    def evaluate_response(self, topic, question, user_answer):
-        """
-        评价用户的回答
-        """
-        system_prompt = """你是一位公正的面试官。请评价候选人对于问题 "{question}" 的回答。
-回答内容："{user_answer}"
-
-请输出一段 JSON，包含：
-- "score": 0-100 的评分
-- "feedback": 简短的评价（指出亮点和不足）
-- "reference": 参考答案要点
-- "follow_up": 如果回答还可以，可以给出一个追问问题；如果回答太差，则为空。
-"""
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            ("user", "请评价。")
-        ])
-        
-        # 实际项目中这里应该用 JsonOutputParser，为了演示方便先用 Str处理
-        chain = prompt | self.llm | StrOutputParser()
-        result = chain.invoke({"topic": topic, "question": question, "user_answer": user_answer})
-        
-        # 简单清洗
-        try:
-            # 尝试提取 JSON 部分
-            match = re.search(r"\{[\s\S]*\}", result.strip())
-            if match:
-                clean_response = match.group(0)
-            else:
-                clean_response = result.replace("```json", "").replace("```", "").strip()
-            
-            return json.loads(clean_response)
         except Exception as e:
-            print(f"JSON Parse Error in Interviewer: {e}")
             return {
-                "score": 60,
-                "feedback": "解析评分失败，但你的回答已被记录。",
-                "reference": "无",
-                "follow_up": None,
-                "raw": result
+                "total_score": 0, 
+                "summary": f"生成报告时发生错误，请重试。错误: {str(e)}", 
+                "strengths": [], 
+                "weaknesses": [], 
+                "suggestions": []
             }

@@ -4,7 +4,7 @@ import os
 import json
 
 # Path hack
-sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from database.models import init_db, SessionLocal, InterviewSession
 from core.auth import init_admin_user, get_user_by_username

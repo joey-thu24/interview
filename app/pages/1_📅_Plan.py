@@ -12,13 +12,13 @@ from core.llm import get_llm
 from components.ui import load_custom_css
 from core.data.templates import get_template_names, get_template
 
-st.set_page_config(page_title="Daily Plan", page_icon="📅", layout="wide")
+st.set_page_config(page_title="每日规划", page_icon="📅", layout="wide")
 load_custom_css()
 
 # --- Login Check ---
 if "logged_in" not in st.session_state or not st.session_state.logged_in:
-    st.warning("Please login from the main page first.")
-    st.info("Go to [Main Page](/)")
+    st.warning("请先从主页登录。")
+    st.info("前往 [主页](/)")
     st.stop()
     
 user_id = st.session_state.user_id
@@ -27,7 +27,7 @@ def get_db():
     db = SessionLocal()
     return db
 
-st.title("📅 Study Plan & Supervisor")
+st.title("📅 学习规划与监督")
 
 # Sidebar
 target_role = st.sidebar.selectbox(
@@ -47,7 +47,7 @@ def get_agent():
 supervisor = get_agent()
 db = get_db()
 
-tab1, tab2 = st.tabs(["📋 Today's Plan", "🗺️ Long-term Roadmap"])
+tab1, tab2 = st.tabs(["📋 今日待办", "🗺️ 长期路线"])
 
 with tab1:
     today_plan = crud.get_today_plan(db, user_id)
@@ -63,7 +63,7 @@ with tab1:
             
         updated = False
         
-        st.subheader("Today's To-Do List")
+        st.subheader("今日任务清单")
         
         for idx, task in enumerate(tasks):
             col_a, col_b = st.columns([0.05, 0.95])
@@ -90,15 +90,15 @@ with tab1:
         # Progress
         if tasks:
             done_cnt = sum(1 for t in tasks if t.get("status") == "completed")
-            st.progress(done_cnt / len(tasks), text=f"Progress: {done_cnt}/{len(tasks)}")
+            st.progress(done_cnt / len(tasks), text=f"进度: {done_cnt}/{len(tasks)}")
 
     else:
-        st.write("A good day starts with a plan.")
-        if st.button("Generate Today's Plan", type="primary"):
+        st.write("美好的一天从规划开始。")
+        if st.button("生成今日计划", type="primary"):
             if not supervisor:
-                st.error("LLM Agent not initialized. Please check configuration.")
+                st.error("LLM Agent 未初始化，请检查配置。")
             else:
-                with st.spinner("AI is analyzing your recent performance and generating a plan..."):
+                with st.spinner("AI 正在分析你的近期表现并生成计划..."):
                     weaknesses = crud.get_recent_weaknesses(db, user_id)
                     user_profile = {"target_role": target_role, "days_left": days_left, "current_level": current_level}
                     plan = supervisor.generate_daily_plan(user_profile, recent_weaknesses=weaknesses)
@@ -113,17 +113,17 @@ with tab1:
                         st.rerun()
 
 with tab2:
-    st.subheader("Career Roadmap")
+    st.subheader("职业路线图")
     
     if "roadmap" not in st.session_state:
         st.session_state.roadmap = None
 
-    selected_template = st.selectbox("Select Roadmap Template", ["Custom"] + get_template_names())
+    selected_template = st.selectbox("选择路线图模板", ["Custom"] + get_template_names())
     
     if selected_template != "Custom":
-        if st.button("Preview & Apply Template"):
+        if st.button("预览并应用模板"):
             st.session_state.roadmap = get_template(selected_template)
-            st.success("Template Loaded!")
+            st.success("模板已加载！")
 
     if st.session_state.roadmap:
         rm = st.session_state.roadmap
@@ -135,13 +135,13 @@ with tab2:
                      st.write(f"**Goals**: {', '.join(phase.get('goals',[]))}")
                      st.write(f"**Key Topics**: {', '.join(phase.get('key_topics',[]))}")
     else:
-        st.info("No roadmap generated yet.")
+        st.info("暂无路线图。")
 
-    if st.button("Generate from Scratch (AI)", help="Uses DeepSeek to plan your career path"):
+    if st.button("从头生成 (AI)", help="利用 DeepSeek 规划你的职业路径"):
         if not supervisor:
-            st.error("API Key missing")
+            st.error("缺少 API Key")
         else:
-             with st.spinner("Planning..."):
+             with st.spinner("正在规划..."):
                  st.session_state.roadmap = supervisor.generate_roadmap({"target_role": target_role, "days_left": days_left})
                  st.rerun()
 

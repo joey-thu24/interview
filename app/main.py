@@ -1,193 +1,205 @@
 import streamlit as st
 import sys
 import os
+import json
 
 # Path hack
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-from database.models import init_db, SessionLocal
-from core.auth import verify_password, get_user_by_username, create_user, init_admin_user
+from database.models import init_db, SessionLocal, InterviewSession
+from core.auth import init_admin_user, get_user_by_username
 from database import crud
+from core.agents.interviewer import InterviewerAgent
+from core.llm import get_llm
 from components.ui import load_custom_css
 
-# --- Config & Init ---
-st.set_page_config(page_title="CS Career Copilot", page_icon="🎓", layout="wide")
-
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "username" not in st.session_state:
-    st.session_state.username = None
-if "user_id" not in st.session_state:
-    st.session_state.user_id = None
-
-# Init DB & Admin
-try:
-    init_db()
-    db = SessionLocal()
-    init_admin_user(db) # Ensure admin/admin exists
-    db.close()
-except Exception as e:
-    st.error(f"Initialization Failed: {e}")
-
+# --- Page Config ---
+st.set_page_config(page_title="AI 面试官", page_icon="🤖", layout="wide")
 load_custom_css()
 
-# --- Auth Functions ---
-def login_form():
-    st.subheader("登录你的工作台")
-    with st.form("login_form"):
-        # Pre-fill admin credentials for convenience
-        username = st.text_input("用户名", value="admin")
-        password = st.text_input("密码", type="password", value="admin")
-        submitted = st.form_submit_button("登录", type="primary", use_container_width=True)
-        
-        if submitted:
-            db = SessionLocal()
-            try:
-                user = get_user_by_username(db, username)
-                if user and verify_password(password, user.password_hash):
-                    st.session_state.logged_in = True
-                    st.session_state.username = user.username
-                    st.session_state.user_id = user.id
-                    st.rerun()
-                else:
-                    st.error("用户名或密码错误")
-            finally:
-                db.close()
-    st.caption("默认账号: admin / admin")
-
-def register_form():
-    st.subheader("注册新账号")
-    with st.form("register_form"):
-        new_user = st.text_input("设置用户名")
-        new_pass = st.text_input("设置密码", type="password")
-        confirm_pass = st.text_input("确认密码", type="password")
-        submitted = st.form_submit_button("立即注册", type="primary", use_container_width=True)
-        
-        if submitted:
-            if new_pass != confirm_pass:
-                st.error("两次输入的密码不一致！")
-                return
-            if not new_user or not new_pass:
-                st.error("请填写完整信息。")
-                return
-            
-            db = SessionLocal()
-            try:
-                if get_user_by_username(db, new_user):
-                    st.error("该用户名已被注册。")
-                    return
-                
-                user = create_user(db, new_user, new_pass)
-                st.session_state.logged_in = True
-                st.session_state.username = user.username
-                st.session_state.user_id = user.id
-                st.success("注册成功！")
-                st.rerun()
-            except Exception as e:
-                st.error(f"注册失败: {e}")
-            finally:
-                db.close()
-
-# --- Dashboard (Main App) ---
-def main_app():
-    # Sidebar Profile
-    with st.sidebar:
-        st.title(f"👋 你好, {st.session_state.username}")
-        if st.button("退出登录"):
-            st.session_state.logged_in = False
-            st.session_state.username = None
-            st.session_state.user_id = None
-            st.rerun()
-        st.divider()
-    
-    st.title("📊 个人仪表盘")
-    
-    db = SessionLocal()
+# --- Auto Login & Admin Setup ---
+if "logged_in" not in st.session_state:
+    # Initialize DB and Admin User
     try:
-        user_id = st.session_state.user_id
-        stats = crud.get_study_stats(db, user_id)
-        today_plan = crud.get_today_plan(db, user_id)
-    finally:
+        init_db()
+        db = SessionLocal()
+        init_admin_user(db)
+        
+        # Auto-login as admin
+        admin_user = get_user_by_username(db, "admin")
+        if admin_user:
+            st.session_state.logged_in = True
+            st.session_state.user_id = admin_user.id
+            st.session_state.username = admin_user.username
+        db.close()
+    except Exception as e:
+        st.error(f"System Init Failed: {e}")
+
+# --- Resources ---
+def get_db():
+    return SessionLocal()
+
+@st.cache_resource
+def get_interviewer():
+    try:
+        return InterviewerAgent(get_llm())
+    except:
+        return None
+
+interviewer = get_interviewer()
+
+# --- State ---
+if "interview_session_id" not in st.session_state:
+    st.session_state.interview_session_id = None
+if "current_jd" not in st.session_state:
+    st.session_state.current_jd = None
+
+# --- Main Interface ---
+
+# Logic: Setup vs Chat
+if not st.session_state.interview_session_id:
+    # ==========================================
+    # Phase 1: Setup Screen (Mobile Friendly)
+    # ==========================================
+    st.markdown("## 🤖 AI 模拟面试官")
+    st.info("👋 欢迎！我是你的专属面试教练。请在下方配置面试环境，随后我们将开始一对一的深度对练。")
+    
+    with st.container(border=True):
+        st.subheader("🎯 面试配置")
+        
+        mode = st.radio("选择模式", ["专项练习", "JD 模拟"], horizontal=True)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            difficulty = st.select_slider("难度等级", ["简单", "中等", "困难"], value="中等")
+        
+        topic = "计算机网络"
+        jd_text = None
+        
+        if mode == "专项练习":
+            with col2:
+                topic = st.selectbox("核心知识点", ["计算机网络", "操作系统", "MySQL", "Redis", "Python", "Golang", "Java", "系统设计", "大模型基础"])
+        else:
+            jd_text = st.text_area("📄 粘贴职位描述 (JD)", height=150, placeholder="请在此粘贴你想要应聘的岗位 JD，我会根据要求定制问题...")
+            topic = "JD 定制"
+
+        st.write("") # Spacer
+        if st.button("🚀 开始面试", type="primary", use_container_width=True):
+            if mode == "JD 模拟" and not jd_text:
+                st.error("请务必填写 JD 内容")
+            else:
+                db = get_db()
+                sess = crud.create_interview_session(db, st.session_state.user_id, topic)
+                st.session_state.interview_session_id = sess.id
+                st.session_state.current_jd = jd_text
+                db.close()
+                st.rerun()
+
+else:
+    # ==========================================
+    # Phase 2: Chat Interface
+    # ==========================================
+    
+    # Sidebar Controls
+    with st.sidebar:
+        st.subheader("控制台")
+        if st.button("🏁 结束并生成报告", type="primary", use_container_width=True):
+            st.session_state.show_report = True
+            st.rerun()
+            
+        st.divider()
+        st.caption("如果要切换话题，请先结束当前面试。")
+        if st.button("返回首页"):
+             st.session_state.interview_session_id = None
+             st.rerun()
+    
+    # Report View
+    if st.session_state.get("show_report", False):
+        st.title("📑 面试评估报告")
+        db = get_db()
+        sess = db.query(InterviewSession).get(st.session_state.interview_session_id)
+        
+        if not sess.feedback and interviewer:
+            with st.spinner("🧠 面试官正在深度复盘整场面试..."):
+                rep = interviewer.generate_final_report(sess.messages)
+                crud.update_session_feedback(db, sess.id, rep.get("total_score", 0), json.dumps(rep))
+                sess = db.query(InterviewSession).get(sess.id)
+        
+        if sess.feedback:
+            try:
+                data = json.loads(sess.feedback)
+                
+                # Score Card
+                c1, c2, c3 = st.columns(3)
+                c1.metric("最终得分", data.get("total_score"))
+                c2.metric("对话轮次", int(len(sess.messages)/2))
+                
+                st.info(f"**综合评价**: {data.get('summary')}")
+                
+                col_a, col_b = st.columns(2)
+                with col_a:
+                     st.success("✅ 亮点 (Strengths)")
+                     for i in data.get("strengths", []): st.write(f"- {i}")
+                with col_b:
+                     st.error("⚠️ 不足 (Weaknesses)")
+                     for i in data.get("weaknesses", []): st.write(f"- {i}")
+                
+                st.markdown("### 💡 进阶建议")
+                for s in data.get("suggestions", []): st.write(f"👉 {s}")
+
+            except:
+                st.error("报告解析失败")
+        
+        if st.button("⬅️ 开始新一轮面试", use_container_width=True):
+             st.session_state.show_report = False
+             st.session_state.interview_session_id = None
+             st.rerun()
+             
         db.close()
 
-    # Metrics
-    c1, c2, c3 = st.columns(3)
-    c1.metric("累计学习天数", f"{stats['total_days']} 天")
-    c2.metric("模拟面试场次", f"{stats.get('finished_sessions', 0)}")
-    
-    todo_count = 0
-    if today_plan and today_plan.content:
-        # Check if content is a list (JSON) or something else
-        content = today_plan.content
-        if isinstance(content, list):
-             todo_count = len(content)
-        elif isinstance(content, str):
-             # basic fallback if simple string
-             todo_count = 1 
-    
-    c3.metric("今日待办任务", todo_count)
+    # Active Chat
+    else:
+        st.subheader("正在面试中...")
+        
+        db = get_db()
+        sess = db.query(InterviewSession).get(st.session_state.interview_session_id)
+        msgs = sess.messages if sess.messages else []
+        
+        # Chat Container
+        chat_container = st.container()
+        
+        with chat_container:
+            for m in msgs:
+                is_ai = m["role"] == "assistant" or m["role"] == "ai"
+                avatar = "🤖" if is_ai else "🧑‍💻"
+                with st.chat_message(m["role"], avatar=avatar):
+                    st.write(m["content"])
+        
+        # AI Turn
+        if not msgs or msgs[-1]["role"] == "human" or msgs[-1]["role"] == "user":
+             if interviewer:
+                 with st.chat_message("assistant", avatar="🤖"):
+                     with st.spinner("面试官思考中..."):
+                         # Context for AI
+                         context = {
+                             "mode": "通用", # Simplified for now
+                             "topic": sess.topic,
+                             "jd": st.session_state.current_jd
+                         }
+                         
+                         response = interviewer.conduct_interview(msgs, context)
+                         st.write(response)
+                         
+                         # Save to DB
+                         crud.add_message(db, sess.id, "ai", response)
+                         # Rerun to update state
+                         st.rerun()
 
-    st.divider()
-
-    # Navigation Cards
-    st.subheader("🚀 你的 PDCA 闭环")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.info("**📅 1. Plan (规划)**")
-        st.write("设定今日学习路线")
-        if st.button("进入规划", key="btn_plan"):
-             st.switch_page("pages/1_📅_Plan.py")
-             
-    with col2:
-        st.warning("**📝 2. Do (执行)**")
-        st.write("深度学习核心知识")
-        if st.button("查阅知识库", key="btn_lib"):
-             st.switch_page("pages/3_📚_Library.py")
-             
-    with col3:
-        st.success("**🎤 3. Check (检验)**")
-        st.write("AI 模拟面试")
-        if st.button("开始面试", key="btn_mock"):
-             st.switch_page("pages/2_🤖_Interview.py")
-             
-    with col4:
-        st.error("**🔭 4. Act (行动)**")
-        st.write("市场机会洞察")
-        if st.button("职位侦探", key="btn_scout"):
-             st.switch_page("pages/4_🔭_Scout.py")
-
-# --- Router ---
-if not st.session_state.logged_in:
-    st.title("🎓 CS Career Copilot")
-    
-    # CSS for login
-    st.markdown("""
-    <style>
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 24px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        white-space: pre-wrap;
-        background-color: #f0f2f6;
-        border-radius: 4px 4px 0px 0px;
-        gap: 1px;
-        padding-top: 10px;
-        padding-bottom: 10px;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #ffffff;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    col1, col2, col3 = st.columns([1,2,1])
-    with col2:
-        tab1, tab2 = st.tabs(["登录", "注册"])
-        with tab1:
-            login_form()
-        with tab2:
-            register_form()
-else:
-    main_app()
+        # User Input
+        if prompt := st.chat_input("请输入你的回答..."):
+            with st.chat_message("user", avatar="🧑‍💻"):
+                st.write(prompt)
+            crud.add_message(db, sess.id, "human", prompt)
+            st.rerun()
+            
+        db.close()

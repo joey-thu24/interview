@@ -33,11 +33,12 @@ load_custom_css()
 
 # --- Auth Functions ---
 def login_form():
-    st.subheader("Login to your workspace")
+    st.subheader("登录你的工作台")
     with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Sign In", type="primary", use_container_width=True)
+        # Pre-fill admin credentials for convenience
+        username = st.text_input("用户名", value="admin")
+        password = st.text_input("密码", type="password", value="admin")
+        submitted = st.form_submit_button("登录", type="primary", use_container_width=True)
         
         if submitted:
             db = SessionLocal()
@@ -49,41 +50,41 @@ def login_form():
                     st.session_state.user_id = user.id
                     st.rerun()
                 else:
-                    st.error("Invalid username or password")
+                    st.error("用户名或密码错误")
             finally:
                 db.close()
-    st.caption("Default: admin / admin")
+    st.caption("默认账号: admin / admin")
 
 def register_form():
-    st.subheader("Create New Account")
+    st.subheader("注册新账号")
     with st.form("register_form"):
-        new_user = st.text_input("Choose Username")
-        new_pass = st.text_input("Choose Password", type="password")
-        confirm_pass = st.text_input("Confirm Password", type="password")
-        submitted = st.form_submit_button("Sign Up", type="primary", use_container_width=True)
+        new_user = st.text_input("设置用户名")
+        new_pass = st.text_input("设置密码", type="password")
+        confirm_pass = st.text_input("确认密码", type="password")
+        submitted = st.form_submit_button("立即注册", type="primary", use_container_width=True)
         
         if submitted:
             if new_pass != confirm_pass:
-                st.error("Passwords do not match!")
+                st.error("两次输入的密码不一致！")
                 return
             if not new_user or not new_pass:
-                st.error("Please fill in all fields.")
+                st.error("请填写完整信息。")
                 return
             
             db = SessionLocal()
             try:
                 if get_user_by_username(db, new_user):
-                    st.error("Username already exists.")
+                    st.error("该用户名已被注册。")
                     return
                 
                 user = create_user(db, new_user, new_pass)
                 st.session_state.logged_in = True
                 st.session_state.username = user.username
                 st.session_state.user_id = user.id
-                st.success("Account created successfully!")
+                st.success("注册成功！")
                 st.rerun()
             except Exception as e:
-                st.error(f"Error creating account: {e}")
+                st.error(f"注册失败: {e}")
             finally:
                 db.close()
 
@@ -91,15 +92,15 @@ def register_form():
 def main_app():
     # Sidebar Profile
     with st.sidebar:
-        st.title(f"👋 Hi, {st.session_state.username}")
-        if st.button("Logout"):
+        st.title(f"👋 你好, {st.session_state.username}")
+        if st.button("退出登录"):
             st.session_state.logged_in = False
             st.session_state.username = None
             st.session_state.user_id = None
             st.rerun()
         st.divider()
     
-    st.title("📊 Dashboard")
+    st.title("📊 个人仪表盘")
     
     db = SessionLocal()
     try:
@@ -111,8 +112,8 @@ def main_app():
 
     # Metrics
     c1, c2, c3 = st.columns(3)
-    c1.metric("Total Study Days", f"{stats['total_days']} Days")
-    c2.metric("Interview Sessions", f"{stats.get('finished_sessions', 0)}")
+    c1.metric("累计学习天数", f"{stats['total_days']} 天")
+    c2.metric("模拟面试场次", f"{stats.get('finished_sessions', 0)}")
     
     todo_count = 0
     if today_plan and today_plan.content:
@@ -124,36 +125,36 @@ def main_app():
              # basic fallback if simple string
              todo_count = 1 
     
-    c3.metric("Today's Tasks", todo_count)
+    c3.metric("今日待办任务", todo_count)
 
     st.divider()
 
     # Navigation Cards
-    st.subheader("🚀 Your PDCA Cycle")
+    st.subheader("🚀 你的 PDCA 闭环")
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.info("**📅 1. Plan**")
-        st.write("Set your roadmap")
-        if st.button("Go to Plan", key="btn_plan"):
+        st.info("**📅 1. Plan (规划)**")
+        st.write("设定今日学习路线")
+        if st.button("进入规划", key="btn_plan"):
              st.switch_page("pages/1_📅_Plan.py")
              
     with col2:
-        st.warning("**📝 2. Do**")
-        st.write("Learn & Record")
-        if st.button("Go to Library", key="btn_lib"):
+        st.warning("**📝 2. Do (执行)**")
+        st.write("深度学习核心知识")
+        if st.button("查阅知识库", key="btn_lib"):
              st.switch_page("pages/3_📚_Library.py")
              
     with col3:
-        st.success("**🎤 3. Check**")
-        st.write("Mock Interview")
-        if st.button("Start Interview", key="btn_mock"):
+        st.success("**🎤 3. Check (检验)**")
+        st.write("AI 模拟面试")
+        if st.button("开始面试", key="btn_mock"):
              st.switch_page("pages/2_🤖_Interview.py")
              
     with col4:
-        st.error("**🔭 4. Act**")
-        st.write("Market Scout")
-        if st.button("Go to Scout", key="btn_scout"):
+        st.error("**🔭 4. Act (行动)**")
+        st.write("市场机会洞察")
+        if st.button("职位侦探", key="btn_scout"):
              st.switch_page("pages/4_🔭_Scout.py")
 
 # --- Router ---
@@ -183,7 +184,7 @@ if not st.session_state.logged_in:
 
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        tab1, tab2 = st.tabs(["Login", "Register"])
+        tab1, tab2 = st.tabs(["登录", "注册"])
         with tab1:
             login_form()
         with tab2:

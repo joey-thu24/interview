@@ -1,9 +1,9 @@
-import streamlit as st
+﻿import streamlit as st
 import sys
 import os
 
 # Path hack
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from database.models import SessionLocal
 from database import crud
@@ -12,7 +12,7 @@ from core.llm import get_llm
 from components.ui import load_custom_css
 from core.data.templates import get_template_names, get_template
 
-st.set_page_config(page_title="Daily Plan", page_icon="📅", layout="wide")
+st.set_page_config(page_title="每日规划", page_icon="", layout="wide")
 load_custom_css()
 
 # --- Login Check ---
@@ -27,7 +27,7 @@ def get_db():
     db = SessionLocal()
     return db
 
-st.title("📅 Study Plan & Supervisor")
+st.title(" 学习规划与监督")
 
 # Sidebar
 target_role = st.sidebar.selectbox(
@@ -47,13 +47,13 @@ def get_agent():
 supervisor = get_agent()
 db = get_db()
 
-tab1, tab2 = st.tabs(["📋 Today's Plan", "🗺️ Long-term Roadmap"])
+tab1, tab2 = st.tabs([" 今日待办", " 长期路线"])
 
 with tab1:
     today_plan = crud.get_today_plan(db, user_id)
     
     if today_plan:
-        st.success(f"🗓️ {today_plan.date} | {today_plan.encouragement}")
+        st.success(f" {today_plan.date} | {today_plan.encouragement}")
         
         # Determine tasks content
         if today_plan.content and isinstance(today_plan.content, list):
@@ -63,7 +63,7 @@ with tab1:
             
         updated = False
         
-        st.subheader("Today's To-Do List")
+        st.subheader("今日待办清单")
         
         for idx, task in enumerate(tasks):
             col_a, col_b = st.columns([0.05, 0.95])
@@ -75,9 +75,9 @@ with tab1:
             
             with col_b:
                 if is_done:
-                    st.markdown(f"~~**{task['topic']}**: {task['description']}~~")
+                    st.markdown(f"~~**{task["topic"]}**: {task["description"]}~~")
                 else:
-                    st.markdown(f"**{task['topic']}**: {task['description']} ({task['estimated_time']})")
+                    st.markdown(f"**{task["topic"]}**: {task["description"]} ({task["estimated_time"]})")
             
             if new_status != is_done:
                 tasks[idx]["status"] = "completed" if new_status else "pending"
@@ -90,40 +90,40 @@ with tab1:
         # Progress
         if tasks:
             done_cnt = sum(1 for t in tasks if t.get("status") == "completed")
-            st.progress(done_cnt / len(tasks), text=f"Progress: {done_cnt}/{len(tasks)}")
+            st.progress(done_cnt / len(tasks), text=f"完成进度: {done_cnt}/{len(tasks)}")
 
     else:
-        st.write("A good day starts with a plan.")
-        if st.button("Generate Today's Plan", type="primary"):
+        st.write("美好的一天，从规划开始。")
+        if st.button("生成今日计划", type="primary"):
             if not supervisor:
-                st.error("LLM Agent not initialized. Please check configuration.")
+                st.error("LLM Agent 初始化失败，请检查配置。")
             else:
-                with st.spinner("AI is analyzing your recent performance and generating a plan..."):
+                with st.spinner("AI 正在分析昨日数据并规划今日任务..."):
                     weaknesses = crud.get_recent_weaknesses(db, user_id)
                     user_profile = {"target_role": target_role, "days_left": days_left, "current_level": current_level}
                     plan = supervisor.generate_daily_plan(user_profile, recent_weaknesses=weaknesses)
                     
                     if "error" in plan:
-                        st.error(plan['error'])
+                        st.error(plan["error"])
                     else:
-                        tasks_raw = plan.get('tasks', [])
+                        tasks_raw = plan.get("tasks", [])
                         # Normalize
                         final_tasks = [{"topic": t.get("topic",""), "description": t.get("description",""), "estimated_time": t.get("estimated_time","30min"), "status": "pending"} for t in tasks_raw]
                         crud.create_daily_plan(db, user_id, final_tasks, plan.get("encouragement"))
                         st.rerun()
 
 with tab2:
-    st.subheader("Career Roadmap")
+    st.subheader("职业发展路线图")
     
     if "roadmap" not in st.session_state:
         st.session_state.roadmap = None
 
-    selected_template = st.selectbox("Select Roadmap Template", ["Custom"] + get_template_names())
+    selected_template = st.selectbox("选择推荐路线模板", ["自定义"] + get_template_names())
     
-    if selected_template != "Custom":
-        if st.button("Preview & Apply Template"):
+    if selected_template != "自定义":
+        if st.button("预览并应用模板"):
             st.session_state.roadmap = get_template(selected_template)
-            st.success("Template Loaded!")
+            st.success("模板已加载！")
 
     if st.session_state.roadmap:
         rm = st.session_state.roadmap
@@ -131,17 +131,17 @@ with tab2:
         phases = rm.get("phases", [])
         if phases:
             for phase in phases:
-                 with st.expander(f"📍 {phase.get('phase_name', 'Phase')} ({phase.get('duration','?')})"):
-                     st.write(f"**Goals**: {', '.join(phase.get('goals',[]))}")
-                     st.write(f"**Key Topics**: {', '.join(phase.get('key_topics',[]))}")
+                 with st.expander(f" {phase.get("phase_name", "Phase")} ({phase.get("duration","?")})"):
+                     st.write(f"**目标**: {", ".join(phase.get("goals",[]))}")
+                     st.write(f"**重点**: {", ".join(phase.get("key_topics",[]))}")
     else:
-        st.info("No roadmap generated yet.")
+        st.info("暂无路线图")
 
-    if st.button("Generate from Scratch (AI)", help="Uses DeepSeek to plan your career path"):
+    if st.button("让 AI 从零规划 (Beta)", help="使用 DeepSeek 思考你的专属路线"):
         if not supervisor:
             st.error("API Key missing")
         else:
-             with st.spinner("Planning..."):
+             with st.spinner("正在深度规划中..."):
                  st.session_state.roadmap = supervisor.generate_roadmap({"target_role": target_role, "days_left": days_left})
                  st.rerun()
 
